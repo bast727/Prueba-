@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horario UCSC 2026-1</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --primary: #1e40af;
+      --primary-light: #dbeafe;
+      --header-h: 60px;
+      --time-w: 88px;
+      --row-h: 74px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── TOP HEADER ── */
+    .top-header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.25);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .ucsc-logo {
+      font-size: 1.9rem;
+      font-weight: 900;
+      letter-spacing: -1px;
+      color: #ef4444;
+      text-shadow: 1px 1px 0 #fff;
+      flex-shrink: 0;
+    }
+    .header-info { flex: 1; }
+    .header-info h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: .5px; }
+    .header-info p  { font-size: .78rem; opacity: .85; margin-top: 2px; }
+    .add-btn {
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: .85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, transform .1s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .add-btn:hover  { background: #dc2626; }
+    .add-btn:active { transform: scale(.97); }
+
+    /* ── LEGEND ── */
+    .legend-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .75rem;
+      color: var(--text-muted);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ── SCHEDULE WRAPPER ── */
+    .schedule-wrapper {
+      padding: 20px 24px 40px;
+      overflow-x: auto;
+    }
+
+    /* ── GRID ── */
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: var(--time-w) repeat(5, 1fr);
+      grid-auto-rows: var(--row-h);
+      gap: 2px;
+      background: var(--border);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      min-width: 700px;
+    }
+
+    .grid-header-spacer {
+      grid-column: 1;
+      grid-row: 1;
+      background: var(--primary);
+    }
+
+    .grid-day-header {
+      grid-row: 1;
+      background: var(--primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: .9rem;
+      letter-spacing: .3px;
+    }
+    .grid-day-header.today { background: #1d4ed8; }
+
+    .grid-time {
+      grid-column: 1;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      border-right: 2px solid var(--border);
+    }
+    .grid-time .module-num {
+      font-size: .7rem;
+      font-weight: 700;
+      color: var(--primary);
+      background: var(--primary-light);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .grid-time .time-range {
+      font-size: .65rem;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .grid-empty {
+      background: var(--surface);
+      transition: background .15s;
+    }
+    .grid-empty:hover { background: #f0f9ff; cursor: crosshair; }
+
+    /* ── CLASS BLOCK ── */
+    .class-block {
+      border-radius: 6px;
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: filter .15s, transform .1s;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border-left: 4px solid rgba(0,0,0,.2);
+      position: relative;
+    }
+    .class-block:hover { filter: brightness(1.08); transform: scale(1.01); z-index: 2; }
+
+    .class-block .cb-type-badge {
+      font-size: .6rem;
+      font-weight: 700;
+      letter-spacing: .5px;
+      opacity: .85;
+      text-transform: uppercase;
+    }
+    .class-block .cb-subject {
+      font-size: .72rem;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .class-block .cb-prof {
+      font-size: .65rem;
+      opacity: .8;
+    }
+    .class-block .cb-loc {
+      font-size: .6rem;
+      opacity: .7;
+      margin-top: auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── MODAL OVERLAY ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.55);
+      backdrop-filter: blur(3px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal-box {
+      background: var(--surface);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      animation: slideUp .2s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-header h2 { font-size: 1.1rem; font-weight: 700; }
+    .close-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 1.4rem; color: var(--text-muted); line-height: 1;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 6px;
+    }
+    .close-btn:hover { background: var(--bg); color: var(--text); }
+
+    .modal-body { padding: 20px 24px; }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .form-group label {
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .3px;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: .88rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
+      transition: border-color .15s;
+      outline: none;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus { border-color: var(--primary); }
+    .form-group textarea { resize: vertical; min-height: 64px; }
+
+    .color-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .color-swatch {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform .1s;
+    }
+    .color-swatch:hover   { transform: scale(1.15); }
+    .color-swatch.active  { border-color: #0f172a; transform: scale(1.1); }
+
+    .modal-footer {
+      padding: 16px 24px 20px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      border-top: 1px solid var(--border);
+    }
+    .btn {
+      border: none; border-radius: 8px;
+      padding: 10px 20px;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-cancel   { background: var(--bg); color: var(--text-muted); }
+    .btn-cancel:hover { background: #e2e8f0; }
+    .btn-delete   { background: #fef2f2; color: #dc2626; }
+    .btn-delete:hover { background: #fee2e2; }
+    .btn-save     { background: var(--primary); color: white; }
+    .btn-save:hover { background: #1d4ed8; }
+
+    /* ── DETAIL PANEL ── */
+    .detail-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.4);
+      backdrop-filter: blur(2px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .detail-overlay.open { display: flex; }
+
+    .detail-box {
+      background: var(--surface);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      animation: slideUp .2s ease;
+      overflow: hidden;
+    }
+    .detail-color-bar {
+      height: 6px;
+      width: 100%;
+    }
+    .detail-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .detail-badge {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+    }
+    .detail-header h3 { font-size: 1rem; font-weight: 700; line-height: 1.35; }
+    .detail-body { padding: 16px 20px; }
+    .detail-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: .85rem;
+    }
+    .detail-row .icon { flex-shrink: 0; font-size: 1rem; }
+    .detail-row .label { color: var(--text-muted); font-size: .75rem; }
+    .detail-row .value { font-weight: 500; }
+    .detail-actions {
+      padding: 14px 20px 18px;
+      display: flex;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .detail-actions .btn { flex: 1; text-align: center; }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #1e293b;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: .85rem;
+      font-weight: 500;
+      z-index: 400;
+      transition: transform .3s ease;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── EMPTY STATE ── */
+    .empty-hint {
+      grid-column: 2 / 7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      font-size: .8rem;
+      pointer-events: none;
+    }
+
+    @media (max-width: 600px) {
+      .top-header { flex-wrap: wrap; gap: 10px; }
+      .schedule-wrapper { padding: 12px; }
+      :root { --time-w: 68px; --row-h: 68px; }
+      .cb-loc { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOP HEADER -->
+<header class="top-header">
+  <div class="ucsc-logo">UCSC</div>
+  <div class="header-info">
+    <h1>HORARIO SEMESTRE 2026-1</h1>
+    <p>CARO ORTEGA, BASTIÁN ALEJANDRO &nbsp;·&nbsp; INGENIERÍA CIVIL INDUSTRIAL</p>
+  </div>
+  <button class="add-btn" onclick="openAddModal()">+ Agregar Clase</button>
+</header>
+
+<!-- LEGEND -->
+<div class="legend-bar" id="legendBar"></div>
+
+<!-- SCHEDULE -->
+<div class="schedule-wrapper">
+  <div class="schedule-grid" id="scheduleGrid"></div>
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="detail-overlay" id="detailOverlay" onclick="closeDetail(event)">
+  <div class="detail-box" id="detailBox">
+    <div class="detail-color-bar" id="detailColorBar"></div>
+    <div class="detail-header">
+      <div class="detail-badge" id="detailBadge"></div>
+      <h3 id="detailSubject"></h3>
+    </div>
+    <div class="detail-body">
+      <div class="detail-row"><span class="icon">👤</span><div><div class="label">Profesor</div><div class="value" id="detailProf"></div></div></div>
+      <div class="detail-row"><span class="icon">📍</span><div><div class="label">Sala</div><div class="value" id="detailLoc"></div></div></div>
+      <div class="detail-row"><span class="icon">📅</span><div><div class="label">Horario</div><div class="value" id="detailTime"></div></div></div>
+      <div class="detail-row"><span class="icon">🏷️</span><div><div class="label">Tipo de sesión</div><div class="value" id="detailType"></div></div></div>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn-delete" onclick="deleteFromDetail()">Eliminar</button>
+      <button class="btn btn-save" onclick="editFromDetail()">Editar</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT / ADD MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOverlay(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modalTitle">Agregar Clase</h2>
+      <button class="close-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nombre de la asignatura</label>
+        <input type="text" id="fSubject" placeholder="Ej: Cálculo en Varias Variables" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Modalidad</label>
+          <select id="fModality">
+            <option>Presencial</option>
+            <option>Online</option>
+            <option>Híbrido</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Tipo de sesión</label>
+          <select id="fClassType">
+            <option>CATEDRA</option>
+            <option>LABORATORIO</option>
+            <option>AYUDANTIA</option>
+            <option>TALLER</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Profesor</label>
+        <input type="text" id="fProf" placeholder="Ej: J. González" />
+      </div>
+      <div class="form-group">
+        <label>Sala / Ubicación</label>
+        <textarea id="fLoc" placeholder="Ej: 14-407 SAN ANDRES - (4TO PISO) EDIF. CENTRAL DE LA UCSC"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Día</label>
+          <select id="fDay">
+            <option value="0">Lunes</option>
+            <option value="1">Martes</option>
+            <option value="2">Miércoles</option>
+            <option value="3">Jueves</option>
+            <option value="4">Viernes</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column: span 1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Módulo inicio</label>
+          <select id="fStart"></select>
+        </div>
+        <div class="form-group">
+          <label>Módulo fin</label>
+          <select id="fEnd"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Color</label>
+        <div class="color-row" id="colorSwatches"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-save"   onclick="saveClass()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MODULES = [
+  { id:1,  start:"08:10", end:"09:00" },
+  { id:2,  start:"09:10", end:"10:00" },
+  { id:3,  start:"10:10", end:"11:00" },
+  { id:4,  start:"11:10", end:"12:00" },
+  { id:5,  start:"12:10", end:"13:00" },
+  { id:6,  start:"13:10", end:"14:00" },
+  { id:7,  start:"14:10", end:"15:00" },
+  { id:8,  start:"15:10", end:"16:00" },
+  { id:9,  start:"16:10", end:"17:00" },
+  { id:10, start:"17:10", end:"18:00" },
+];
+
+const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes"];
+
+const COLORS = [
+  "#3B82F6","#10B981","#8B5CF6","#F59E0B","#EF4444",
+  "#EC4899","#06B6D4","#84CC16","#F97316","#6366F1",
+];
+
+const DEFAULT_CLASSES = [
+  { id:1,  subject:"FUNDAMENTOS DE MECÁNICA",            modality:"Presencial", classType:"LABORATORIO", professor:"P. Montenegro", location:"08-03 SAN ANDRES - (1ER PISO) EDIF. LAB. FAC. INGENIERÍA", day:0, startModule:1, endModule:2, color:"#3B82F6" },
+  { id:2,  subject:"CÁLCULO EN VARIAS VARIABLES",         modality:"Presencial", classType:"CATEDRA",     professor:"F. Gajardo",    location:"14-409 SAN ANDRES - (4TO PISO) EDIF. CENTRAL DE LA UCSC", day:1, startModule:1, endModule:2, color:"#10B981" },
+  { id:3,  subject:"FUNDAMENTOS DE MECÁNICA",             modality:"Presencial", classType:"CATEDRA",     professor:"A. Saavedra",   location:"14-304 SAN ANDRES - (3ER PISO) EDIF. CENTRAL DE LA UCSC", day:2, startModule:1, endModule:2, color:"#3B82F6" },
+  { id:4,  subject:"ESTADÍSTICA DESCRIPTIVA E INFERENCIAL", modality:"Presencial", classType:"CATEDRA",   professor:"H. Alvarado",   location:"14-207 SAN ANDRES - (2DO PISO) EDIF. CENTRAL DE LA UCSC", day:3, startModule:1, endModule:2, color:"#8B5CF6" },
+  { id:5,  subject:"FUNDAMENTOS DE MECÁNICA",             modality:"Presencial", classType:"CATEDRA",     professor:"A. Saavedra",   location:"14-408 SAN ANDRES - (4TO PISO) EDIF. CENTRAL DE LA UCSC", day:3, startModule:3, endModule:4, color:"#3B82F6" },
+  { id:6,  subject:"ESTADÍSTICA DESCRIPTIVA E INFERENCIAL", modality:"Presencial", classType:"CATEDRA",   professor:"H. Alvarado",   location:"04-03 SAN ANDRES - (1ER PISO) EDIF. SAN AGUSTIN",         day:2, startModule:5, endModule:5, color:"#8B5CF6" },
+  { id:7,  subject:"CÁLCULO EN VARIAS VARIABLES",         modality:"Presencial", classType:"CATEDRA",     professor:"F. Gajardo",    location:"14-407 SAN ANDRES - (4TO PISO) EDIF. CENTRAL DE LA UCSC", day:0, startModule:7, endModule:8, color:"#10B981" },
+  { id:8,  subject:"CÁLCULO EN VARIAS VARIABLES",         modality:"Presencial", classType:"AYUDANTIA",   professor:"F. Sanchez",    location:"10-12 SAN ANDRES - (1ER PISO) COSTADO GIMNASIO",           day:2, startModule:7, endModule:8, color:"#10B981" },
+  { id:9,  subject:"FUNDAMENTOS FILOSÓFICOS",              modality:"Presencial", classType:"CATEDRA",     professor:"J. Segura",     location:"14-404 SAN ANDRES - (4TO PISO) EDIF. CENTRAL DE LA UCSC", day:4, startModule:7, endModule:8, color:"#F59E0B" },
+  { id:10, subject:"ESTADÍSTICA DESCRIPTIVA E INFERENCIAL", modality:"Presencial", classType:"AYUDANTIA",  professor:"H. Alvarado",   location:"04-03 SAN ANDRES - (1ER PISO) EDIF. SAN AGUSTIN",         day:0, startModule:9, endModule:10, color:"#8B5CF6" },
+  { id:11, subject:"FUNDAMENTOS DE MECÁNICA",             modality:"Presencial", classType:"AYUDANTIA",   professor:"A. Saavedra",   location:"14-304 SAN ANDRES - (3ER PISO) EDIF. CENTRAL DE LA UCSC", day:1, startModule:9, endModule:10, color:"#3B82F6" },
+  { id:12, subject:"MODELADO Y BASES DE DATOS",           modality:"Presencial", classType:"CATEDRA",     professor:"M. Galdame",    location:"05-17 SAN ANDRES - (1ER PISO) EDIF. DARA",                day:3, startModule:9, endModule:10, color:"#EF4444" },
+  { id:13, subject:"MODELADO Y BASES DE DATOS",           modality:"Presencial", classType:"LABORATORIO", professor:"—",             location:"13-8 SAN ANDRES - (2DO PISO) EDIF. TOMAS MORO",           day:4, startModule:9, endModule:10, color:"#EF4444" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+let schedule = [];
+let editingId = null;
+let detailId  = null;
+let selectedColor = COLORS[0];
+let nextId = 100;
+
+function loadData() {
+  const raw = localStorage.getItem('ucsc-horario-v1');
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      schedule = parsed.schedule || [];
+      nextId   = parsed.nextId   || 100;
+      return;
+    } catch(e) {}
+  }
+  schedule = JSON.parse(JSON.stringify(DEFAULT_CLASSES));
+  nextId = 100;
+}
+
+function saveData() {
+  localStorage.setItem('ucsc-horario-v1', JSON.stringify({ schedule, nextId }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function render() {
+  renderGrid();
+  renderLegend();
+}
+
+function renderGrid() {
+  const grid = document.getElementById('scheduleGrid');
+  grid.innerHTML = '';
+
+  // Corner spacer
+  const spacer = div('grid-header-spacer');
+  spacer.style.gridColumn = '1';
+  spacer.style.gridRow    = '1';
+  grid.appendChild(spacer);
+
+  // Day headers
+  DAYS.forEach((day, i) => {
+    const el = div('grid-day-header');
+    el.style.gridColumn = String(i + 2);
+    el.style.gridRow    = '1';
+    el.textContent = day;
+    grid.appendChild(el);
+  });
+
+  // Time labels
+  MODULES.forEach((mod, i) => {
+    const el = div('grid-time');
+    el.style.gridColumn = '1';
+    el.style.gridRow    = String(i + 2);
+
+    const num = div('module-num');
+    num.textContent = mod.id;
+    const time = div('time-range');
+    time.innerHTML = mod.start + '<br>' + mod.end;
+    el.appendChild(num);
+    el.appendChild(time);
+    grid.appendChild(el);
+  });
+
+  // Empty background cells
+  for (let row = 0; row < MODULES.length; row++) {
+    for (let col = 0; col < DAYS.length; col++) {
+      const el = div('grid-empty');
+      el.style.gridColumn = String(col + 2);
+      el.style.gridRow    = String(row + 2);
+      grid.appendChild(el);
+    }
+  }
+
+  // Class blocks — sort so wider blocks render behind narrower ones
+  const sorted = [...schedule].sort((a,b) => (b.endModule - b.startModule) - (a.endModule - a.startModule));
+
+  sorted.forEach(cls => {
+    const el = div('class-block');
+    el.style.gridColumn = String(cls.day + 2);
+    el.style.gridRow    = `${cls.startModule + 1} / ${cls.endModule + 2}`;
+    el.style.background = cls.color;
+    el.style.color      = 'white';
+    el.style.margin     = '2px';
+    el.style.zIndex     = '3';
+
+    const badge = div('cb-type-badge');
+    badge.textContent = cls.classType;
+
+    const subject = div('cb-subject');
+    subject.textContent = cls.subject;
+
+    const prof = div('cb-prof');
+    prof.textContent = cls.professor;
+
+    const loc = div('cb-loc');
+    loc.textContent = cls.location.split(' - ')[0];
+
+    el.appendChild(badge);
+    el.appendChild(subject);
+    el.appendChild(prof);
+    el.appendChild(loc);
+
+    el.addEventListener('click', () => openDetail(cls.id));
+    grid.appendChild(el);
+  });
+}
+
+function renderLegend() {
+  const bar = document.getElementById('legendBar');
+  bar.innerHTML = '';
+  const seen = {};
+  schedule.forEach(cls => {
+    if (!seen[cls.subject]) {
+      seen[cls.subject] = cls.color;
+      const item = div('legend-item');
+      const dot  = div('legend-dot');
+      dot.style.background = cls.color;
+      item.appendChild(dot);
+      item.appendChild(text(cls.subject));
+      bar.appendChild(item);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DETAIL PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openDetail(id) {
+  const cls = schedule.find(c => c.id === id);
+  if (!cls) return;
+  detailId = id;
+
+  document.getElementById('detailColorBar').style.background = cls.color;
+
+  const badge = document.getElementById('detailBadge');
+  badge.textContent = cls.classType + ' · ' + cls.modality;
+  badge.style.background = cls.color + '22';
+  badge.style.color       = cls.color;
+
+  document.getElementById('detailSubject').textContent = cls.subject;
+  document.getElementById('detailProf').textContent    = cls.professor;
+  document.getElementById('detailLoc').textContent     = cls.location;
+
+  const startTime = MODULES[cls.startModule - 1].start;
+  const endTime   = MODULES[cls.endModule   - 1].end;
+  const dayName   = DAYS[cls.day];
+  document.getElementById('detailTime').textContent =
+    dayName + ', Módulo ' + cls.startModule +
+    (cls.endModule !== cls.startModule ? '–' + cls.endModule : '') +
+    '  (' + startTime + ' – ' + endTime + ')';
+
+  document.getElementById('detailType').textContent =
+    cls.classType + ' · ' + cls.modality;
+
+  document.getElementById('detailOverlay').classList.add('open');
+}
+
+function closeDetail(e) {
+  if (e && e.target !== document.getElementById('detailOverlay')) return;
+  document.getElementById('detailOverlay').classList.remove('open');
+  detailId = null;
+}
+
+function closeDetailPanel() {
+  document.getElementById('detailOverlay').classList.remove('open');
+  detailId = null;
+}
+
+function deleteFromDetail() {
+  if (detailId === null) return;
+  const cls = schedule.find(c => c.id === detailId);
+  if (!cls) return;
+  if (!confirm(`¿Eliminar "${cls.subject}" del ${DAYS[cls.day]}?`)) return;
+  schedule = schedule.filter(c => c.id !== detailId);
+  saveData();
+  closeDetailPanel();
+  render();
+  toast('Clase eliminada');
+}
+
+function editFromDetail() {
+  if (detailId === null) return;
+  closeDetailPanel();
+  openEditModal(detailId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD / EDIT MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildModuleOptions() {
+  ['fStart','fEnd'].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '';
+    MODULES.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = 'Módulo ' + m.id + ' (' + m.start + ')';
+      sel.appendChild(opt);
+    });
+  });
+}
+
+function buildColorSwatches(currentColor) {
+  const container = document.getElementById('colorSwatches');
+  container.innerHTML = '';
+  COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (c === currentColor ? ' active' : '');
+    sw.style.background = c;
+    sw.title = c;
+    sw.addEventListener('click', () => {
+      selectedColor = c;
+      container.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      sw.classList.add('active');
+    });
+    container.appendChild(sw);
+  });
+  selectedColor = currentColor;
+}
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Agregar Clase';
+  document.getElementById('fSubject').value = '';
+  document.getElementById('fModality').value = 'Presencial';
+  document.getElementById('fClassType').value = 'CATEDRA';
+  document.getElementById('fProf').value = '';
+  document.getElementById('fLoc').value = '';
+  document.getElementById('fDay').value = '0';
+  buildModuleOptions();
+  document.getElementById('fStart').value = '1';
+  document.getElementById('fEnd').value   = '2';
+  buildColorSwatches(COLORS[0]);
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function openEditModal(id) {
+  const cls = schedule.find(c => c.id === id);
+  if (!cls) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Editar Clase';
+  document.getElementById('fSubject').value  = cls.subject;
+  document.getElementById('fModality').value = cls.modality;
+  document.getElementById('fClassType').value= cls.classType;
+  document.getElementById('fProf').value     = cls.professor;
+  document.getElementById('fLoc').value      = cls.location;
+  document.getElementById('fDay').value      = String(cls.day);
+  buildModuleOptions();
+  document.getElementById('fStart').value = String(cls.startModule);
+  document.getElementById('fEnd').value   = String(cls.endModule);
+  buildColorSwatches(cls.color);
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  editingId = null;
+}
+
+function closeModalOverlay(e) {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+}
+
+function saveClass() {
+  const subject   = document.getElementById('fSubject').value.trim();
+  const modality  = document.getElementById('fModality').value;
+  const classType = document.getElementById('fClassType').value;
+  const professor = document.getElementById('fProf').value.trim();
+  const location  = document.getElementById('fLoc').value.trim();
+  const day       = parseInt(document.getElementById('fDay').value);
+  const startModule = parseInt(document.getElementById('fStart').value);
+  const endModule   = parseInt(document.getElementById('fEnd').value);
+
+  if (!subject) { alert('El nombre de la asignatura es requerido.'); return; }
+  if (endModule < startModule) { alert('El módulo de fin debe ser mayor o igual al de inicio.'); return; }
+
+  if (editingId !== null) {
+    const idx = schedule.findIndex(c => c.id === editingId);
+    if (idx !== -1) {
+      schedule[idx] = { ...schedule[idx], subject, modality, classType, professor, location, day, startModule, endModule, color: selectedColor };
+    }
+    toast('Clase actualizada');
+  } else {
+    schedule.push({ id: nextId++, subject, modality, classType, professor, location, day, startModule, endModule, color: selectedColor });
+    toast('Clase agregada');
+  }
+
+  saveData();
+  closeModal();
+  render();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function div(cls) {
+  const el = document.createElement('div');
+  if (cls) el.className = cls;
+  return el;
+}
+function text(str) {
+  return document.createTextNode(str);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+
+loadData();
+render();
+</script>
+</body>
+</html>
