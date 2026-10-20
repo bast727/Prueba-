@@ -27,14 +27,16 @@ jobs:
           cache: pip
           cache-dependency-path: notas/requirements.txt
 
+      - name: Guardar navegador en caché
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('notas/requirements.txt') }}
+
       - name: Preparar navegador
         run: |
           pip install -r notas/requirements.txt
-          if command -v google-chrome >/dev/null; then
-            echo "CHROME_CHANNEL=chrome" >> "$GITHUB_ENV"
-          else
-            playwright install --with-deps chromium
-          fi
+          playwright install --with-deps chromium
 
       - name: Recuperar estado anterior
         uses: actions/cache/restore@v4

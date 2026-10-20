@@ -184,6 +184,15 @@ def revisar(rut: str, password: str) -> list[str]:
     return [l for l in lineas if NOTA_NUEVA.search(l)]
 
 
+def detalle_error(e: Exception, *privados: str) -> str:
+    """Primera línea del error, sin RUT ni contraseña (los registros son públicos)."""
+    msg = str(e).strip().splitlines()[0] if str(e).strip() else ""
+    for dato in privados:
+        if dato:
+            msg = msg.replace(dato, "***")
+    return f"{type(e).__name__}: {msg[:200]}"
+
+
 def registrar_fallo() -> int:
     """Portal caído o lento: no es error grave, pero avisa si dura ~1 hora."""
     FALLOS = ESTADO.with_name("fallos.txt")
@@ -223,7 +232,7 @@ def main() -> int:
         except LoginRechazado:
             raise  # nunca reintentar: el portal bloquea tras 6 fallos
         except Exception as e:
-            print(f"Intento {intento} falló: {type(e).__name__}")
+            print(f"Intento {intento} falló: {detalle_error(e, rut, password)}")
             if intento == INTENTOS:
                 return registrar_fallo()
             time.sleep(15)
