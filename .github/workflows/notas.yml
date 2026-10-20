@@ -1,0 +1,60 @@
+name: Monitor de notas UCSC
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # cada 30 minutos (GitHub puede atrasarlo unos minutos)
+  workflow_dispatch:          # botón "Run workflow" para probar a mano
+
+permissions:
+  contents: read
+  actions: write   # para guardar el estado y desactivarse si falla el login
+
+concurrency:
+  group: monitor-notas
+  cancel-in-progress: false
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Playwright
+        run: |
+          pip install playwright==1.55.0
+          playwright install --with-deps chromium
+
+      - name: Recuperar estado anterior
+        uses: actions/cache/restore@v4
+        with:
+          path: estado
+          key: estado-notas-${{ github.run_id }}
+          restore-keys: estado-notas-
+
+      - name: Revisar notas
+        id: revisar
+        env:
+          UCSC_RUT: ${{ secrets.UCSC_RUT }}
+          UCSC_PASSWORD: ${{ secrets.UCSC_PASSWORD }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_DETALLE: ${{ vars.NTFY_DETALLE }}
+          NOTAS_SELECTOR: ${{ vars.NOTAS_SELECTOR }}
+        run: python notas/revisar_notas.py
+
+      - name: Guardar estado
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: estado
+          key: estado-notas-${{ github.run_id }}
+
+      - name: Desactivar si el portal rechazó el login
+        if: failure() && steps.revisar.outputs.rechazado == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable notas.yml --repo "$GITHUB_REPOSITORY"
