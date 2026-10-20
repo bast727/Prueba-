@@ -2,6 +2,8 @@
 
 Cada 5 minutos entra al Portal UCSC, abre la "Ficha del curso" y busca el aviso **"(una nota nueva en los últimos 7 días)"** junto a cada ramo. Cuando aparece en un ramo nuevo, te llega una notificación al celular: *"Nueva nota en Optimización"*.
 
+El aviso dura 7 días en el portal, pero te llega **una sola vez** por nota. Si llega otra nota al mismo ramo ("dos notas nuevas") o la página falla un momento, también se maneja sin repetir.
+
 ## Configuración (una sola vez)
 
 1. **Instala ntfy** en el celular (App Store / Play Store). Toca "+" y suscríbete a un canal con un nombre largo e inventado, por ejemplo `notas-bastian-x7k29qpl`. Cualquiera que sepa el nombre puede leerlo, así que no uses algo obvio.

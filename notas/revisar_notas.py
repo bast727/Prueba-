@@ -32,6 +32,9 @@ APP_NOTAS = "https://portal.ucsc.cl/alumno#/apps/app/1"
 ESTADO = Path(os.environ.get("ESTADO_PATH", "estado/avisos.json"))
 FALLOS_PARA_AVISAR = 12  # ~1 hora sin poder leer el portal
 INTENTOS = 3
+# El aviso dura 7 días. Mientras siga visible no se repite. Si desaparece y
+# vuelve antes de 3 horas, se asume que la página cargó mal y tampoco se repite.
+GRACIA = 3 * 3600
 
 # "(una nota nueva en los últimos 7 días)", "(2 notas nuevas ...)", etc.
 NOTA_NUEVA = re.compile(r"notas?\s+nuevas?", re.IGNORECASE)
@@ -227,10 +230,16 @@ def main() -> int:
     ESTADO.with_name("fallos.txt").write_text("0")
 
     print(f"Ramos con aviso de nota nueva: {len(avisos)}.")
+    ahora = int(time.time())
     actuales = {huella(l): l for l in avisos}
 
+    def estado_nuevo(vistos: dict) -> dict:
+        vistos = {h: t for h, t in vistos.items() if ahora - t < GRACIA}
+        vistos.update({h: ahora for h in actuales})
+        return {"ultima_revision": ahora, "vistos": vistos}
+
     if not ESTADO.exists():
-        ESTADO.write_text(json.dumps(sorted(actuales)))
+        ESTADO.write_text(json.dumps(estado_nuevo({})))
         if avisos:
             ramos = ", ".join(nombre_ramo(l) for l in avisos)
             msg = f"Monitor activo. Ahora mismo tienen nota nueva: {ramos}."
@@ -239,8 +248,19 @@ def main() -> int:
         avisar("Monitor de notas activo", msg, 3, "Monitor de notas UCSC activo")
         return 0
 
-    anteriores = set(json.loads(ESTADO.read_text()))
-    nuevos = [l for h, l in actuales.items() if h not in anteriores]
+    datos = json.loads(ESTADO.read_text())
+    if isinstance(datos, list):  # formato antiguo
+        datos = {"ultima_revision": ahora, "vistos": {h: ahora for h in datos}}
+    ultima, previo = datos["ultima_revision"], datos["vistos"]
+
+    def es_nuevo(h: str) -> bool:
+        if h not in previo:
+            return True
+        if previo[h] == ultima:  # se veía en la revisión anterior
+            return False
+        return ahora - previo[h] >= GRACIA  # desapareció un rato y volvió
+
+    nuevos = [l for h, l in actuales.items() if es_nuevo(h)]
 
     if nuevos:
         print(f"Notas nuevas detectadas: {len(nuevos)}.")
@@ -258,7 +278,7 @@ def main() -> int:
     else:
         print("Sin notas nuevas.")
 
-    ESTADO.write_text(json.dumps(sorted(actuales)))
+    ESTADO.write_text(json.dumps(estado_nuevo(previo)))
     return 0
 
 
