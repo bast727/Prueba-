@@ -1,15 +1,19 @@
-"""Revisa la página de notas del Portal UCSC y avisa por ntfy si cambió.
+"""Avisa por ntfy cuando un ramo del Portal UCSC muestra "nota nueva".
+
+En la "Ficha del curso", el portal agrega junto al ramo el texto
+"(una nota nueva en los últimos 7 días)". Este script solo busca ese
+aviso y notifica cuando aparece en un ramo que antes no lo tenía
+(o cuando cambia, por ejemplo de "una" a "dos notas nuevas").
 
 Privacidad: el repo es público y los registros de GitHub Actions también.
-Por eso el script NUNCA imprime el contenido de la página. Solo guarda
-huellas (hashes) de cada línea, no las notas en sí.
+El script nunca imprime nombres de ramos ni notas en los registros.
 
 Variables de entorno (se configuran como "secrets" en GitHub):
   UCSC_RUT        RUT sin puntos ni dígito verificador
   UCSC_PASSWORD   contraseña del portal
   NTFY_TOPIC      nombre del canal de ntfy (inventa uno largo y difícil de adivinar)
-  NTFY_DETALLE    opcional: "1" para incluir las líneas nuevas en la notificación
-  NOTAS_SELECTOR  opcional: selector CSS para leer solo una parte de la página
+  NTFY_TOKEN      opcional: token de una cuenta gratis de ntfy.sh (evita límites)
+Si ntfy falla, se usa de respaldo un issue en el repo (GITHUB_TOKEN).
 """
 
 import hashlib
@@ -17,6 +21,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -24,13 +29,12 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PORTAL = "https://portal.ucsc.cl/alumno"
 APP_NOTAS = "https://portal.ucsc.cl/alumno#/apps/app/1"
-ESTADO = Path(os.environ.get("ESTADO_PATH", "estado/huellas.json"))
+ESTADO = Path(os.environ.get("ESTADO_PATH", "estado/avisos.json"))
+FALLOS_PARA_AVISAR = 12  # ~1 hora sin poder leer el portal
+INTENTOS = 3
 
-# Líneas que cambian solas (fechas, horas, saludos) y no deben dar aviso.
-IGNORAR = re.compile(
-    r"(\d{1,2}:\d{2})|(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|hace \d+|aviso publicado",
-    re.IGNORECASE,
-)
+# "(una nota nueva en los últimos 7 días)", "(2 notas nuevas ...)", etc.
+NOTA_NUEVA = re.compile(r"notas?\s+nuevas?", re.IGNORECASE)
 
 
 class LoginRechazado(Exception):
@@ -41,22 +45,65 @@ def huella(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
-def avisar(titulo: str, mensaje: str, prioridad: str = "high") -> None:
+def _ntfy(titulo: str, mensaje: str, prioridad: int) -> bool:
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
-        print("Falta NTFY_TOPIC: no se envió la notificación.")
-        return
-    req = urllib.request.Request(
-        f"https://ntfy.sh/{topic}",
-        data=mensaje.encode("utf-8"),
-        headers={
-            "Title": titulo.encode("utf-8").decode("latin-1", "ignore"),
-            "Priority": prioridad,
-            "Tags": "mortar_board",
-            "Click": APP_NOTAS,
-        },
-    )
-    urllib.request.urlopen(req, timeout=20)
+        return False
+    datos = {
+        "topic": topic,
+        "title": titulo,
+        "message": mensaje,
+        "priority": prioridad,
+        "tags": ["mortar_board"],
+        "click": APP_NOTAS,
+    }
+    headers = {"Content-Type": "application/json"}
+    if os.environ.get("NTFY_TOKEN"):
+        headers["Authorization"] = f"Bearer {os.environ['NTFY_TOKEN']}"
+    for espera in (0, 5, 20):
+        time.sleep(espera)
+        try:
+            req = urllib.request.Request(
+                "https://ntfy.sh/", data=json.dumps(datos).encode("utf-8"), headers=headers
+            )
+            urllib.request.urlopen(req, timeout=20)
+            return True
+        except Exception as e:
+            print(f"ntfy falló: {getattr(e, 'code', type(e).__name__)}")
+    return False
+
+
+def _issue_github(titulo: str) -> bool:
+    """Respaldo: abre un issue; la app de GitHub te manda un push.
+
+    El repo es público, así que el issue no dice ramo ni nota.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return False
+    datos = {"title": titulo, "body": f"Revisa el portal: {APP_NOTAS}"}
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/issues",
+            data=json.dumps(datos).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        urllib.request.urlopen(req, timeout=20)
+        return True
+    except Exception as e:
+        print(f"Issue de respaldo falló: {getattr(e, 'code', type(e).__name__)}")
+        return False
+
+
+def avisar(titulo: str, mensaje: str, prioridad: int = 4, titulo_publico: str = "") -> bool:
+    """Envía por ntfy; si falla, usa GitHub. Devuelve True si algo llegó."""
+    if _ntfy(titulo, mensaje, prioridad):
+        return True
+    return _issue_github(titulo_publico or "Aviso del monitor de notas UCSC")
 
 
 def iniciar_sesion(page, rut: str, password: str) -> None:
@@ -75,85 +122,143 @@ def iniciar_sesion(page, rut: str, password: str) -> None:
             "() => !document.querySelector('#formulario-ingreso')", timeout=45000
         )
     except PWTimeout:
-        error = page.locator("#alert-resp").inner_text(timeout=2000).strip()
+        error = ""
+        try:
+            error = page.locator("#alert-resp").inner_text(timeout=2000).strip()
+        except Exception:
+            pass
         if error:
             raise LoginRechazado(error)
         raise RuntimeError("El portal no respondió al iniciar sesión.")
 
 
-def leer_notas(page) -> list[str]:
+def leer_lineas(page) -> list[str]:
+    """Devuelve las líneas de texto de la Ficha del curso."""
     page.goto(APP_NOTAS, wait_until="domcontentloaded", timeout=60000)
-    try:
-        page.wait_for_load_state("networkidle", timeout=30000)
-    except PWTimeout:
-        pass
-    page.wait_for_timeout(8000)  # la app carga datos después
-
-    selector = os.environ.get("NOTAS_SELECTOR")
-    textos = []
-    for frame in page.frames:  # la app puede estar dentro de un iframe
-        try:
-            if selector:
-                loc = frame.locator(selector)
-                if loc.count():
-                    textos.append(loc.first.inner_text(timeout=5000))
-            else:
+    # Espera a que aparezca la lista de ramos (selector de semestre).
+    limite = time.time() + 60
+    lineas: list[str] = []
+    while time.time() < limite:
+        page.wait_for_timeout(3000)
+        textos = []
+        for frame in page.frames:  # la app puede estar dentro de un iframe
+            try:
                 textos.append(frame.locator("body").inner_text(timeout=5000))
-        except Exception:
-            continue
+            except Exception:
+                continue
+        lineas = [
+            " ".join(l.split()) for t in textos for l in t.splitlines() if l.strip()
+        ]
+        if any("SEMESTRE" in l.upper() for l in lineas):
+            page.wait_for_timeout(2000)  # deja terminar de pintar los avisos
+            textos = []
+            for frame in page.frames:
+                try:
+                    textos.append(frame.locator("body").inner_text(timeout=5000))
+                except Exception:
+                    continue
+            return [
+                " ".join(l.split()) for t in textos for l in t.splitlines() if l.strip()
+            ]
+    raise RuntimeError("La lista de ramos no cargó a tiempo.")
 
-    lineas = []
-    for t in textos:
-        for linea in t.splitlines():
-            linea = " ".join(linea.split())
-            if linea and not IGNORAR.search(linea):
-                lineas.append(linea)
-    print(f"Marcos leídos: {len(page.frames)}. Líneas útiles: {len(lineas)}.")
-    return lineas
+
+def revisar(rut: str, password: str) -> list[str]:
+    """Inicia sesión y devuelve las líneas con aviso de nota nueva."""
+    with sync_playwright() as p:
+        opciones = {}
+        if os.environ.get("CHROME_CHANNEL"):
+            opciones["channel"] = os.environ["CHROME_CHANNEL"]
+        if os.environ.get("CHROMIUM_PATH"):
+            opciones["executable_path"] = os.environ["CHROMIUM_PATH"]
+        browser = p.chromium.launch(**opciones)
+        try:
+            page = browser.new_page(locale="es-CL")
+            iniciar_sesion(page, rut, password)
+            lineas = leer_lineas(page)
+        finally:
+            browser.close()
+    return [l for l in lineas if NOTA_NUEVA.search(l)]
+
+
+def registrar_fallo() -> int:
+    """Portal caído o lento: no es error grave, pero avisa si dura ~1 hora."""
+    FALLOS = ESTADO.with_name("fallos.txt")
+    try:
+        n = int(FALLOS.read_text()) + 1
+    except Exception:
+        n = 1
+    FALLOS.write_text(str(n))
+    print(f"::warning::No se pudo leer el portal ({n} revisiones seguidas).")
+    if n == FALLOS_PARA_AVISAR:
+        avisar(
+            "Monitor de notas con problemas",
+            "Hace ~1 hora que no puedo leer el portal UCSC. "
+            "Puede estar caído; sigo intentando.",
+            3,
+            "Monitor de notas: no puede leer el portal",
+        )
+    return 0
+
+
+def nombre_ramo(linea: str) -> str:
+    return linea.split("(")[0].strip().title() or linea
 
 
 def main() -> int:
     rut = os.environ.get("UCSC_RUT", "").strip()
     password = os.environ.get("UCSC_PASSWORD", "")
     if not rut or not password:
-        print("Faltan UCSC_RUT o UCSC_PASSWORD.")
-        return 1
+        print("::warning::Faltan los secrets UCSC_RUT o UCSC_PASSWORD.")
+        return 0
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None)
-        page = browser.new_page(locale="es-CL")
+    ESTADO.parent.mkdir(parents=True, exist_ok=True)
+    for intento in range(1, INTENTOS + 1):
         try:
-            iniciar_sesion(page, rut, password)
-            lineas = leer_notas(page)
-        finally:
-            browser.close()
+            avisos = revisar(rut, password)
+            break
+        except LoginRechazado:
+            raise  # nunca reintentar: el portal bloquea tras 6 fallos
+        except Exception as e:
+            print(f"Intento {intento} falló: {type(e).__name__}")
+            if intento == INTENTOS:
+                return registrar_fallo()
+            time.sleep(15)
+    ESTADO.with_name("fallos.txt").write_text("0")
 
-    if len(lineas) < 5:
-        print("La página de notas vino casi vacía; no se compara para evitar falsos avisos.")
-        return 1
+    print(f"Ramos con aviso de nota nueva: {len(avisos)}.")
+    actuales = {huella(l): l for l in avisos}
 
-    nuevas = {huella(l): l for l in lineas}
     if not ESTADO.exists():
-        ESTADO.parent.mkdir(parents=True, exist_ok=True)
-        ESTADO.write_text(json.dumps(sorted(nuevas)))
-        print("Primera revisión: se guardó el estado inicial.")
-        avisar("Monitor de notas activo", "Te avisaré cuando cambie tu página de notas.", "default")
+        ESTADO.write_text(json.dumps(sorted(actuales)))
+        if avisos:
+            ramos = ", ".join(nombre_ramo(l) for l in avisos)
+            msg = f"Monitor activo. Ahora mismo tienen nota nueva: {ramos}."
+        else:
+            msg = "Monitor activo. Te avisaré cuando aparezca una nota nueva."
+        avisar("Monitor de notas activo", msg, 3, "Monitor de notas UCSC activo")
         return 0
 
     anteriores = set(json.loads(ESTADO.read_text()))
-    agregadas = [l for h, l in nuevas.items() if h not in anteriores]
-    ESTADO.write_text(json.dumps(sorted(nuevas)))
+    nuevos = [l for h, l in actuales.items() if h not in anteriores]
 
-    if not agregadas:
-        print("Sin cambios.")
-        return 0
-
-    print(f"Cambios detectados: {len(agregadas)} línea(s) nueva(s).")
-    if os.environ.get("NTFY_DETALLE") == "1":
-        cuerpo = "\n".join(agregadas[:15])
+    if nuevos:
+        print(f"Notas nuevas detectadas: {len(nuevos)}.")
+        ramos = ", ".join(nombre_ramo(l) for l in nuevos)
+        ok = avisar(
+            f"Nueva nota en {ramos}",
+            "Toca para abrir el portal UCSC.",
+            5,
+            titulo_publico="Nueva nota en el portal UCSC",
+        )
+        if not ok:
+            # No se guarda el estado: la próxima revisión lo vuelve a intentar.
+            print("No se pudo enviar el aviso; se reintentará en la próxima revisión.")
+            return 1
     else:
-        cuerpo = f"Hay {len(agregadas)} cambio(s) en tu página de notas. Toca para abrir el portal."
-    avisar("¡Nueva nota en el portal UCSC!", cuerpo)
+        print("Sin notas nuevas.")
+
+    ESTADO.write_text(json.dumps(sorted(actuales)))
     return 0
 
 
@@ -173,10 +278,12 @@ if __name__ == "__main__":
                 "Monitor de notas detenido",
                 f"El portal rechazó el inicio de sesión ({e}). "
                 "Revisa UCSC_RUT/UCSC_PASSWORD y vuelve a activar el workflow.",
+                5,
+                "Monitor de notas detenido: el portal rechazó el inicio de sesión",
             )
         except Exception:
             pass
         sys.exit(2)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {type(e).__name__}")
         sys.exit(1)
