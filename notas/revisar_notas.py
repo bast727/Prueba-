@@ -30,7 +30,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 PORTAL = "https://portal.ucsc.cl/alumno"
 APP_NOTAS = "https://portal.ucsc.cl/alumno#/apps/app/1"
 ESTADO = Path(os.environ.get("ESTADO_PATH", "estado/avisos.json"))
-FALLOS_PARA_AVISAR = 30  # ~1 hora sin poder leer el portal (revisión cada 2 min)
+FALLOS_PARA_AVISAR = 4  # ~1 hora sin poder leer el portal (revisión cada 15 min)
 INTENTOS = 3
 # El aviso dura 7 días. Mientras siga visible no se repite. Si desaparece y
 # vuelve antes de 3 horas, se asume que la página cargó mal y tampoco se repite.
@@ -236,7 +236,21 @@ def main() -> int:
             if intento == INTENTOS:
                 return registrar_fallo()
             time.sleep(15)
-    ESTADO.with_name("fallos.txt").write_text("0")
+    FALLOS = ESTADO.with_name("fallos.txt")
+    try:
+        fallos_previos = int(FALLOS.read_text())
+    except Exception:
+        fallos_previos = 0
+    if fallos_previos >= FALLOS_PARA_AVISAR:
+        # Ya se había avisado "con problemas": confirmar que volvió a funcionar.
+        print(f"El portal volvió a responder tras {fallos_previos} revisiones fallidas.")
+        avisar(
+            "Monitor de notas funcionando de nuevo",
+            "Volví a poder leer el portal UCSC. Te avisaré cuando aparezca una nota nueva.",
+            3,
+            "Monitor de notas UCSC funcionando de nuevo",
+        )
+    FALLOS.write_text("0")
 
     print(f"Ramos con aviso de nota nueva: {len(avisos)}.")
     ahora = int(time.time())
