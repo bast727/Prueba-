@@ -1,6 +1,6 @@
 name: Monitor de notas UCSC
 
-# Cada ejecución revisa el portal cada 2 minutos durante ~5 h 45 min y al
+# Cada ejecución revisa el portal cada 15 minutos durante ~5 h 45 min y al
 # terminar se relanza sola. El cron horario es solo un respaldo por si la
 # cadena se corta (el cron de GitHub es poco confiable para intervalos cortos).
 on:
@@ -48,7 +48,17 @@ jobs:
           key: estado-notas-${{ github.run_id }}
           restore-keys: estado-notas-
 
-      - name: Revisar notas cada 2 minutos
+      - name: Probar conexión con la UCSC
+        # Solo diagnóstico: muestra si el portal (o toda la UCSC) responde
+        # desde los servidores de GitHub. No usa tu cuenta.
+        continue-on-error: true
+        run: |
+          echo "País del servidor: $(curl -s -m 10 https://ipinfo.io/country || echo '?')"
+          for url in https://portal.ucsc.cl/alumno https://www.ucsc.cl https://www.uchile.cl; do
+            echo "$url -> $(curl -s -o /dev/null -m 20 -w '%{http_code} en %{time_total}s' "$url" || echo 'sin respuesta')"
+          done
+
+      - name: Revisar notas cada 15 minutos
         id: revisar
         env:
           UCSC_RUT: ${{ secrets.UCSC_RUT }}
@@ -68,7 +78,7 @@ jobs:
               echo "rechazado=1" >> "$GITHUB_OUTPUT"
               exit 1   # login rechazado: no seguir intentando
             fi
-            espera=$(( 120 - ($(date +%s) - inicio) ))
+            espera=$(( 900 - ($(date +%s) - inicio) ))
             if [ "$espera" -gt 0 ]; then sleep "$espera"; fi
           done
 
