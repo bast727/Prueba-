@@ -10,7 +10,8 @@ C="$OCI_TENANCY"   # compartimento raíz de la cuenta
 RAW=https://raw.githubusercontent.com/bast727/Prueba-/claude/schedule-app-management-31CF1/notas/oracle
 KEY=~/.ssh/monitor_notas
 mkdir -p ~/.ssh
-[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -f "$KEY" -C monitor-notas
+# RSA: Cloud Shell está en modo FIPS y no acepta llaves ED25519.
+[ -f "$KEY" ] || ssh-keygen -q -t rsa -b 4096 -N '' -f "$KEY" -C monitor-notas
 
 vacio() { [ -z "$1" ] || [ "$1" = "null" ]; }
 
