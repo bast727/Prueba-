@@ -1,6 +1,6 @@
 # Monitor de notas UCSC
 
-Cada 5 minutos entra al Portal UCSC, abre la "Ficha del curso" y busca el aviso **"(una nota nueva en los últimos 7 días)"** junto a cada ramo. Cuando aparece en un ramo nuevo, te llega una notificación al celular: *"Nueva nota en Optimización"*.
+Cada 2 minutos entra al Portal UCSC, abre la "Ficha del curso" y busca el aviso **"(una nota nueva en los últimos 7 días)"** junto a cada ramo. Cuando aparece en un ramo nuevo, te llega una notificación al celular: *"Nueva nota en Optimización"*.
 
 El aviso dura 7 días en el portal, pero te llega **una sola vez** por nota. Si llega otra nota al mismo ramo ("dos notas nuevas") o la página falla un momento, también se maneja sin repetir.
 
@@ -19,7 +19,7 @@ ntfy sin cuenta limita los mensajes por IP, y los servidores de GitHub se compar
 
 ## Qué pasa si algo falla
 
-- **ntfy no responde:** se abre un issue en el repo y la app de GitHub te manda un push. Si tampoco funciona, la nota no se marca como vista y se reintenta en 5 minutos.
+- **ntfy no responde:** se abre un issue en el repo y la app de GitHub te manda un push. Si tampoco funciona, la nota no se marca como vista y se reintenta en 2 minutos.
 - **Portal caído:** sigue intentando sin llenarte de correos de error. Si pasa ~1 hora sin poder leerlo, te avisa una vez.
 - **Contraseña rechazada:** te avisa y **se desactiva solo** para no bloquear tu cuenta (el portal bloquea tras 6 intentos fallidos). Corrige el secret y reactívalo en Actions → "Enable workflow".
 - GitHub pausa las tareas de repos sin actividad por 60 días; el monitor se mantiene activo solo.
@@ -30,4 +30,4 @@ El repo es público: los registros nunca muestran ramos ni notas, y el issue de 
 
 ## Límite
 
-GitHub programa cada 5 minutos, pero en horas de mucho uso puede atrasarse unos minutos más.
+El monitor corre en ciclos de ~6 horas y se relanza solo; entre un ciclo y el siguiente pasa 1–2 minutos. Si la cadena se corta, una revisión horaria lo vuelve a iniciar.

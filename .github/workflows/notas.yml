@@ -1,13 +1,16 @@
 name: Monitor de notas UCSC
 
+# Cada ejecución revisa el portal cada 2 minutos durante ~5 h 45 min y al
+# terminar se relanza sola. El cron horario es solo un respaldo por si la
+# cadena se corta (el cron de GitHub es poco confiable para intervalos cortos).
 on:
   schedule:
-    - cron: "*/5 * * * *"   # cada 5 minutos, el mínimo de GitHub (a veces se atrasa)
-  workflow_dispatch:         # botón "Run workflow" para probar a mano
+    - cron: "17 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
-  actions: write   # guardar estado, mantener activo y desactivarse si falla el login
+  actions: write   # guardar estado, relanzarse, mantener activo y desactivarse si falla el login
   issues: write    # aviso de respaldo si ntfy no responde
 
 concurrency:
@@ -17,7 +20,7 @@ concurrency:
 jobs:
   revisar:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +48,7 @@ jobs:
           key: estado-notas-${{ github.run_id }}
           restore-keys: estado-notas-
 
-      - name: Revisar notas
+      - name: Revisar notas cada 2 minutos
         id: revisar
         env:
           UCSC_RUT: ${{ secrets.UCSC_RUT }}
@@ -53,7 +56,21 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: python notas/revisar_notas.py
+        run: |
+          fin=$(( $(date +%s) + 340*60 ))
+          while [ "$(date +%s)" -lt "$fin" ]; do
+            inicio=$(date +%s)
+            set +e
+            python notas/revisar_notas.py
+            codigo=$?
+            set -e
+            if [ "$codigo" -eq 2 ]; then
+              echo "rechazado=1" >> "$GITHUB_OUTPUT"
+              exit 1   # login rechazado: no seguir intentando
+            fi
+            espera=$(( 120 - ($(date +%s) - inicio) ))
+            if [ "$espera" -gt 0 ]; then sleep "$espera"; fi
+          done
 
       - name: Guardar estado
         if: always() && hashFiles('estado/*') != ''
@@ -62,11 +79,15 @@ jobs:
           path: estado
           key: estado-notas-${{ github.run_id }}
 
-      - name: Mantener activo (GitHub pausa repos sin actividad por 60 días)
-        if: success()
+      - name: Relanzar el monitor
+        # Solo si el ciclo terminó bien; si algo falló, el cron horario lo reintenta
+        # (así un error de instalación no genera un bucle de relanzamientos).
+        if: steps.revisar.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/notas.yml/enable" || true
+        run: |
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/notas.yml/enable" || true
+          gh workflow run notas.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
 
       - name: Desactivar si el portal rechazó el login
         if: failure() && steps.revisar.outputs.rechazado == '1'

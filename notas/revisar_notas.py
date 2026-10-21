@@ -30,7 +30,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 PORTAL = "https://portal.ucsc.cl/alumno"
 APP_NOTAS = "https://portal.ucsc.cl/alumno#/apps/app/1"
 ESTADO = Path(os.environ.get("ESTADO_PATH", "estado/avisos.json"))
-FALLOS_PARA_AVISAR = 12  # ~1 hora sin poder leer el portal
+FALLOS_PARA_AVISAR = 30  # ~1 hora sin poder leer el portal (revisión cada 2 min)
 INTENTOS = 3
 # El aviso dura 7 días. Mientras siga visible no se repite. Si desaparece y
 # vuelve antes de 3 horas, se asume que la página cargó mal y tampoco se repite.
